@@ -32,7 +32,7 @@ class Trainer:
         os.environ["OMP_NUM_THREADS"] = "1" 
 
 
-        # os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
+        os.environ["CUDA_VISIBLE_DEVICES"] = "4"
         # print(torch.cuda.device_count())
  
         "=========================================== create datasets ================================================"
@@ -88,9 +88,6 @@ class Trainer:
         "=========================================== create optimizers ================================================"
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=1e-4) 
         "=========================================== tensorboard ==================================================="
-        log_dir = '/raid/eredekop/prostate_imaging/tensorboard_fixedSplit/race_white/'
-        self.writer = SummaryWriter(log_dir)
-        self.scheduler = ReduceLROnPlateau(self.optimizer , factor=0.5, patience=5, mode='max', verbose=True)
 
         model_path = '/raid/eredekop/picai/saved_models/' + 'model_att1_{0}.pt' #'1114_test_short_attWS2_tiomore_corrGG_f0.pt'
         self.save = lambda ep: torch.save({
