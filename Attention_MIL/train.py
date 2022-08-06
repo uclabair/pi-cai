@@ -52,23 +52,38 @@ class Trainer:
                 val_filenames.append(item)
             else:
                 print('val not exist')
-        # # path to images
-        # image_path = '/raid/mpleasure/nnUNet_raw_data/Task2201_picai_baseline/imagesTr'
-        # # path to annotations
-        # label_path = '/raid/mpleasure/nnUNet_raw_data/Task2201_picai_baseline/labelsTr'
+
         # path to anatomical annotations
-        whole_prostate_path = None#'/raid/mpleasure/picai_workdir/picai_labels/anatomical_delineations/whole_gland/AI/Bosma22b'
+        whole_prostate_path = '/raid/mpleasure/picai_workdir/picai_labels/anatomical_delineations/whole_gland/AI/Bosma22b'
+        # path to images
+        path_to_images = '/raid/mpleasure/nnUNet_raw_data/Task2201_picai_baseline/imagesTr/'
+        # path to labels
+        path_to_labels = '/raid/mpleasure/nnUNet_raw_data/Task2201_picai_baseline/labelsTr/'
 
+        self.train_loader = make_loader(
+                                    train_filenames,
+                                    path_to_images,
+                                    path_to_labels,
+                                    whole_prostate_path,
+                                    PicaiDataset,
+                                    get_annotation_masks = False,
+                                    shuffle_= True,
+                                    batch_size = 1,
+                                    phase = 'train',
+                                    patch = False)
 
-        self.train_loader = make_loader(train_filenames, whole_prostate_path, 
+        self.val_loader = make_loader(
+                                train_filenames,
+                                path_to_images,
+                                path_to_labels,
+                                whole_prostate_path,
                                 PicaiDataset,
-                                get_annotation_masks=False,
-                                shuffle_=True, batch_size=1, phase='train', patch = False)
-
-        self.val_loader = make_loader(val_filenames, whole_prostate_path, 
-                                PicaiDataset,
-                                get_annotation_masks=False,
-                                shuffle_=False, batch_size=1, phase='val', patch = False)   
+                                get_annotation_masks = False,
+                                shuffle_= False,
+                                batch_size = 1,
+                                phase = 'val',
+                                patch = False
+                            )
 
         # self.test_loader = make_loader(images_test, masks_test, pirads_test,  PicaiDataset,
         #                         shuffle_=False, batch_size=1, mode='val')   

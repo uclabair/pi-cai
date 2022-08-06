@@ -33,81 +33,114 @@ def resample(image, old_spacing, order, new_spacing=[1, 1, 1]):
     return image
 
 
+def squeeze_tensors(subject, anatomical_masks = False, get_annotation_masks = False):
+    # resize to remove empty dim after using torchio
+
+    squeezed_tensors = {}
+    
+    squeezed_tensors['t2'] = subject.t2.numpy().squeeze(axis = 0)
+    squeezed_tensors['adc'] = subject.adc.numpy().squeeze(axis = 0)
+    squeezed_tensors['highb'] = subject.highb.numpy().squeeze(axis = 0)
+    
+    if anatomical_masks:
+        squeezed_tensors['t2_anatomical'] = subject.t2_anatomical.numpy().squeeze(axis = 0)
+        squeezed_tensors['adc_anatomical'] = subject.adc_anatomical.numpy().squeeze(axis = 0)
+        squeezed_tensors['highb_anatomical'] = subject.highb_anatomical.numpy().squeeze(axis = 0)
+        
+    if get_annotation_masks:
+        squeezed_tensors['t2_annotation'] = subject.t2_annotation.numpy().squeeze(axis = 0)
+        squeezed_tensors['adc_annotation'] = subject.adc_annotation.numpy().squeeze(axis = 0)
+        squeezed_tensors['highb_annotation'] = subject.highb_annotation.numpy().squeeze(axis = 0)
+        
+    return squeezed_tensors
+    
+    
+def unsqueeze_tensors(t2, adc, highb, anatomical_masks = False, get_annotation_masks = False, 
+                      t2_anatom = None, adc_anatom = None, highb_anatom = None, 
+                     t2_annotation = None, adc_annotation = None, highb_annotation = None):
+    # in order to use torchio - need the arrays to have 4 dim not 3
+
+    unsqueezed_tensors = {}
+    
+    unsqueezed_tensors['t2'] = t2[np.newaxis, :, :]
+    unsqueezed_tensors['adc'] = adc[np.newaxis, :, :]
+    unsqueezed_tensors['highb'] = highb[np.newaxis, :, :]
+    
+    if anatomical_masks:
+        unsqueezed_tensors['t2_anatomical'] = t2_anatom[np.newaxis, :, :]
+        unsqueezed_tensors['adc_anatomical'] = adc_anatom[np.newaxis, :, :]
+        unsqueezed_tensors['highb_anatomical'] = highb_anatom[np.newaxis, :, :]
+    
+    if get_annotation_masks:
+        unsqueezed_tensors['t2_annotation'] = t2_annotation[np.newaxis, :, :]
+        unsqueezed_tensors['adc_annotation'] = adc_annotation[np.newaxis, :, :]
+        unsqueezed_tensors['highb_annotation'] = highb_annotation[np.newaxis, :, :]
+
+    return unsqueezed_tensors
+
+
+def get_annot_masks(t2, adc, highb, annotation):
+    # get annotation masks if requested
+
+    t2_annotation = (t2 * annotation)
+    adc_annotation = (adc * annotation)
+    highb_annotation = (highb * annotation)
+
+    return t2_annotation, adc_annotation, highb_annotation
+
+def get_anatomical_masks(t2, adc, highb, whole_prostate):
+    # get whole prostate masks if requested
+
+    t2_anatomical = (t2 * whole_prostate)
+    adc_anatomical = (adc * whole_prostate)
+    highb_anatomical = (highb * whole_prostate)
+
+    return t2_anatomical, adc_anatomical, highb_anatomical
+
+
 class PicaiDataset(Dataset):
     def __init__(
         self,
         patient_ids,
-        # label_path,
+        path_to_images,
+        path_to_labels,
         get_annotation_masks = False,
         whole_prostate_path = None,
         phase = 'train',       
         patch = False
     ):
         self.patient_ids = patient_ids
-        # self.label_path = label_path
+        self.path_to_images = path_to_images
+        self.path_to_labels = path_to_labels
         self.median_voxel = np.array([0.5, 0.5, 3. ], dtype=np.float32)
         self.phase = phase
         self.patch = patch
-        self.anatomical_masks = False
+        if whole_prostate_path is None:
+            self.anatomical_masks = False
+        else:
+            self.anatomical_masks = True
+            
         self.get_annotation_masks = get_annotation_masks
         self.whole_prostate_path = whole_prostate_path
 
-        # self.image_paths = sorted(glob.glob(os.path.join(self.image_path, '*.nii.gz')))
-        # self.label_paths = sorted(glob.glob(os.path.join(self.label_path, '*.nii.gz')))
-        # if self.whole_prostate_path is None:
-        #     self.anatomical_masks = False
-        #     self.reshape_method = 'default'
-        # else:
-        #     self.anatomical_masks = True
-        #     self.reshape_method = 'mask'
-        #     self.whole_prostate_paths = sorted(glob.glob(os.path.join(self.whole_prostate_path, '*.nii.gz')))
-
-        # # create dictionary based on patient ids in file paths
-        # self.picai_set = {}
-        # for path in self.image_paths:
-        #     id_1, id_2 = path.split('/')[-1].split('.')[0].split('_')[0:2]
-        #     new_key = f'{id_1}_{id_2}'
-        #     if new_key in self.picai_set:
-        #         self.picai_set[new_key].append(path)
-        #     else:
-        #         self.picai_set[new_key] = [path]
-
-        # for label in self.label_paths:
-        #     id_ = label.split('/')[-1].split('.')[0]
-        #     if id_ in self.picai_set:
-        #         self.picai_set[id_].append(label)
-
-        # if self.anatomical_masks:
-        #     for whole_seg in self.whole_prostate_paths:
-        #         id_ = whole_seg.split('/')[-1].split('.')[0]
-        #         if id_ in self.picai_set:
-        #             self.picai_set[id_].append(whole_seg)
-
-        # self.patient_keys = list(self.picai_set.keys())
 
     def __len__(self):
         return len(self.patient_ids)
 
     def __getitem__(self, idx):
-        path_to_images = '/raid/mpleasure/nnUNet_raw_data/Task2201_picai_baseline/imagesTr/'
-        path_to_labels = '/raid/mpleasure/nnUNet_raw_data/Task2201_picai_baseline/labelsTr/'
         patient_id = self.patient_ids[idx]
-        # patient_paths = self.picai_set[patient_id]
-
-        # mri_paths = patient_paths[0:3]
     
-
-        t2_full = nib.load(path_to_images + patient_id + '_0000.nii.gz')
+        t2_full = nib.load(os.path.join(self.path_to_images, f'{patient_id}_0000.nii.gz'))
         t2 = t2_full.get_fdata()
         if np.array_equal(t2_full.header['pixdim'][1:4], self.median_voxel) == False:
             t2 = resample(t2, old_spacing=t2_full.header['pixdim'][1:4], new_spacing=self.median_voxel, order=3)
 
-        adc_full = nib.load(path_to_images + patient_id + '_0001.nii.gz')
+        adc_full = nib.load(os.path.join(self.path_to_images, f'{patient_id}_0001.nii.gz'))
         adc = adc_full.get_fdata()
         if np.array_equal(adc_full.header['pixdim'][1:4], self.median_voxel) == False:
             adc = resample(adc, old_spacing=adc_full.header['pixdim'][1:4], new_spacing=self.median_voxel, order=3)
 
-        highb_full = nib.load(path_to_images + patient_id + '_0002.nii.gz')
+        highb_full = nib.load(os.path.join(self.path_to_images, f'{patient_id}_0002.nii.gz'))
         highb = highb_full.get_fdata()
         if np.array_equal(highb_full.header['pixdim'][1:4], self.median_voxel) == False:
             highb = resample(highb, old_spacing=highb_full.header['pixdim'][1:4], new_spacing=self.median_voxel, order=3)
@@ -115,73 +148,152 @@ class PicaiDataset(Dataset):
         annotation = None
         whole_prostate = None
 
+        if self.anatomical_masks: # check if we have segmentations of prostate provided
+            anatomical_path = os.path.join(self.whole_prostate_path,f'{patient_id}.nii.gz')
+            whole_prostate_full = nib.load(anatomical_path)
+            whole_prostate = whole_prostate_full.get_fdata()
+            if np.array_equal(highb_full.header['pixdim'][1:4], self.median_voxel) == False:
+                whole_prostate = resample(
+                                        whole_prostate, 
+                                        old_spacing = whole_prostate_full.header['pixdim'][1:4], 
+                                        new_spacing = self.median_voxel, 
+                                        order = 3)
+                
+            
+            # get anatomical masks as well, just in case
+            t2_anatomical, adc_anatomical, highb_anatomical = get_anatomical_masks(t2, adc, highb, whole_prostate)
+            
+            whole_prostate = whole_prostate[None, :, :, :]
+            
+            annotation_path = os.path.join(self.path_to_labels, f'{patient_id}.nii.gz')
+            # annotation_path = patient_paths[-1]
+            annotation_full = nib.load(annotation_path)
+            annotation = annotation_full.get_fdata()
+            
+            if np.array_equal(highb_full.header['pixdim'][1:4], self.median_voxel) == False:
+                annotation = resample(annotation, old_spacing=annotation_full.header['pixdim'][1:4], new_spacing=self.median_voxel, order=3)
 
-        # print('1', t2.shape, adc.shape, highb.shape)
-        input_3mri = np.array([t2, adc, highb])#.transpose((0, 2, 3, 1))  #Katya - no need for transpose here
-        # if self.anatomical_masks: # check if we have segmentations of prostate provided
-        #     whole_prostate_path = patient_paths[-1]
-        #     whole_prostate_full = nib.load(whole_prostate_path)
-        #     whole_prostate = whole_prostate_full.get_fdata()
-        #     whole_prostate = whole_prostate[None, :, :, :].transpose((0, 2, 3, 1))
+            # check if we want to get annotation masks
+            if self.get_annotation_masks:
+                t2_annotation, adc_annotation, highb_annotation = get_annot_masks(t2, adc, highb, annotation)
+            else:
+                t2_annotation = None
+                adc_annotation = None
+                highb_annotation = None
+            
+            annotation = annotation[None, :, :, :]  #!!!Katya - no need for transpose here
+            
+            # add extra dimension to tensors before create tio subject
+            unsqueezed_tensors = unsqueeze_tensors(
+                                                t2, 
+                                                adc, 
+                                                highb, 
+                                                anatomical_masks = self.anatomical_masks, 
+                                                get_annotation_masks = self.get_annotation_masks, 
+                                                t2_anatom = t2_anatomical, 
+                                                adc_anatom = adc_anatomical, 
+                                                highb_anatom = highb_anatomical,
+                                                t2_annotation = t2_annotation, 
+                                                adc_annotation = adc_annotation, 
+                                                highb_annotation = highb_annotation
+                                                )
+            
+            # crop to annatomical mask - in order to do this we make a torchio subject first
+            if self.get_annotation_masks:
+                # create tio subject so all arrays can be cropped to same region
+                subject = tio.Subject(
+                     t2 = tio.ScalarImage(tensor = unsqueezed_tensors['t2']),
+                     adc = tio.ScalarImage(tensor = unsqueezed_tensors['adc']),
+                     highb = tio.ScalarImage(tensor = unsqueezed_tensors['highb']),
+                     t2_anatomical = tio.ScalarImage(tensor = unsqueezed_tensors['t2_anatomical']),
+                     adc_anatomical = tio.ScalarImage(tensor = unsqueezed_tensors['adc_anatomical']),
+                     highb_anatomical = tio.ScalarImage(tensor = unsqueezed_tensors['highb_anatomical']),
+                     t2_annotation = tio.ScalarImage(tensor = unsqueezed_tensors['t2_annotation']),
+                     adc_annotation = tio.ScalarImage(tensor = unsqueezed_tensors['adc_annotation']),
+                     highb_annotation = tio.ScalarImage(tensor = unsqueezed_tensors['highb_annotation']),
+                     annotation = tio.LabelMap(tensor = annotation),
+                     whole_prostate = tio.LabelMap(tensor = whole_prostate)
+                 )
+            else:
+                # if we dont need annotation masks saved
+                subject = tio.Subject(
+                     t2 = tio.ScalarImage(tensor = unsqueezed_tensors['t2']),
+                     adc = tio.ScalarImage(tensor = unsqueezed_tensors['adc']),
+                     highb = tio.ScalarImage(tensor = unsqueezed_tensors['highb']),
+                     t2_anatomical = tio.ScalarImage(tensor = unsqueezed_tensors['t2_anatomical']),
+                     adc_anatomical = tio.ScalarImage(tensor = unsqueezed_tensors['adc_anatomical']),
+                     highb_anatomical = tio.ScalarImage(tensor = unsqueezed_tensors['highb_anatomical']),
+                     annotation = tio.LabelMap(tensor = annotation),
+                     whole_prostate = tio.LabelMap(tensor = whole_prostate)
+                 )
+            
+            # crop tensors
+            target_shape = 256, 256, 20
+            crop_pad = tio.CropOrPad(target_shape, mask_name = 'whole_prostate')
+            subject = crop_pad(subject)
 
-        #     annotation_path = patient_paths[-2]
-        #     annotation_full = nib.load(annotation_path)
-        #     annotation = annotation_full.get_fdata()
-        #     annotation = annotation[None, :, :, :].transpose((0, 2, 3, 1))
+            # remove empty dim
+            squeezed_tensors = squeeze_tensors(
+                                            subject, 
+                                            anatomical_masks = self.anatomical_masks, 
+                                            get_annotation_masks = self.get_annotation_masks)
+            
+            input_3mri = np.array([squeezed_tensors['t2'], squeezed_tensors['adc'], squeezed_tensors['highb']])#.transpose((0, 2, 3, 1))
+            input_3anatomical = np.array([squeezed_tensors['t2_anatomical'], squeezed_tensors['adc_anatomical'], squeezed_tensors['highb_anatomical']])
+            
+            if self.get_annotation_masks:
+                # if we have the annotation masks
+                input_3annotation = np.array([squeezed_tensors['t2_annotation'], squeezed_tensors['adc_annotation'], squeezed_tensors['highb_annotation']])
+                data = np.concatenate((
+                    input_3mri, 
+                    input_3anatomical, 
+                    input_3annotation, 
+                    subject.annotation.numpy(), 
+                    subject.whole_prostate.numpy()
+                ), 
+                0)
+            else: # otherwise just work with anatomical masks and mris
+                data = np.concatenate((
+                    input_3mri, 
+                    input_3anatomical, 
+                    subject.annotation.numpy(), 
+                    subject.whole_prostate.numpy()
+                ), 
+                0)
+        else:
+            # if we do not have a path to whole prostates
 
-        #     # crop to annatomical mask - in order to do this we make a torchio subject first
-        #     subject = tio.Subject(
-        #         t2 = tio.ScalarImage(mri_paths[0]),
-        #         adc = tio.ScalarImage(mri_paths[1]),
-        #         highb = tio.ScalarImage(mri_paths[2]),
-        #         annotation = tio.LabelMap(annotation_path),
-        #         whole_prostate = tio.LabelMap(whole_prostate_path)
-        #     )
-        #     target_shape = 256, 256, 20
-        #     canonical = tio.ToCanonical()
-        #     subject = canonical(subject)
-        #     # resample = tio.Resample(self.median_voxel)
-        #     # subject = resample(subject)
-        #     crop_pad = tio.CropOrPad(target_shape, mask_name = 'whole_prostate')
-        #     subject = crop_pad(subject)
-
-        #     t2 = subject.t2.numpy().squeeze(axis = 0)
-        #     adc = subject.adc.numpy().squeeze(axis = 0)
-        #     highb = subject.highb.numpy().squeeze(axis = 0)
-        #     annotation = subject.annotation.numpy()
-        #     whole_prostate = subject.whole_prostate.numpy()
-        #     input_3mri = np.array([t2, adc, highb])#.transpose((0, 2, 3, 1))
-
-        #     data = np.concatenate((input_3mri, annotation, whole_prostate), 0)
-
-        # else:
-        whole_prostate_path = None
-        annotation_path = path_to_labels + patient_id + '.nii.gz'
-        # annotation_path = patient_paths[-1]
-        annotation_full = nib.load(annotation_path)
-        annotation = annotation_full.get_fdata()
-        if np.array_equal(highb_full.header['pixdim'][1:4], self.median_voxel) == False:
-            annotation = resample(annotation, old_spacing=annotation_full.header['pixdim'][1:4], new_spacing=self.median_voxel, order=3)
-
-        annotation = annotation[None, :, :, :]  #!!!Katya - no need for transpose here
-        # crop to prespecified area
-        data = np.concatenate((input_3mri, annotation), 0)
-        shape1 = data.shape
-        target_shape = 256, 256, 20
-        # canonical = tio.ToCanonical()
-        # data = canonical(data)
-        # resample = tio.Resample(self.median_voxel)
-        # data = resample(data)
-        crop_pad = tio.CropOrPad(target_shape)
-        data = crop_pad(data)
+            annotation_path = os.path.join(self.path_to_labels, f'{patient_id}.nii.gz')
+            annotation_full = nib.load(annotation_path)
+            annotation = annotation_full.get_fdata()
+            if np.array_equal(highb_full.header['pixdim'][1:4], self.median_voxel) == False:
+                annotation = resample(annotation, old_spacing=annotation_full.header['pixdim'][1:4], new_spacing=self.median_voxel, order=3)
+            
+            input_3mri = np.array([t2, adc, highb])
+            
+            if self.get_annotation_masks:
+                # check if we want to get annotation masks in this case
+                t2_annotation, adc_annotation, highb_annotation = get_annot_masks(t2, adc, highb, annotation)
+                annotation = annotation[None, :, :, :]
+                input_3annotation = np.array([t2_annotation, adc_annotation, highb_annotation])
+                data = np.concatenate((input_3mri, input_3annotation, annotation), 0)
+                
+            else:        
+                annotation = annotation[None, :, :, :]  #!!!Katya - no need for transpose here
+                # crop to prespecified area
+                data = np.concatenate((input_3mri, annotation), 0)
+            
+            shape1 = data.shape
+            target_shape = 256, 256, 20
+            crop_pad = tio.CropOrPad(target_shape)
+            data = crop_pad(data)
 
         # get cspca label
         cspca_label = (np.all(annotation == 0) == False).astype(np.uint8)
-        # print(cspca_label, np.sum(annotation))
 
         # data augmentation for train phase
         if self.phase == 'train':
-            anisotropy = tio.RandomAnisotropy(p = 0.3)
+            #anisotropy = tio.RandomAnisotropy(p = 0.3)
             flip = tio.RandomFlip(axes=[0,1], flip_probability = 0.5)
             #swap = tio.RandomSwap(patch_size = 4, num_iterations = 100, p = 0.5)
             spatial = tio.OneOf({
@@ -198,38 +310,33 @@ class PicaiDataset(Dataset):
 
         # get mri data and normalize it
         input_3mri = data[0:3]
-
         input_3mri = input_3mri.transpose((0, 3, 1, 2))
 
         normalize = tio.ZNormalization()
         input_3mri = normalize(input_3mri)
-
+    
         #!!!Katya here should be augmented annotations
-        annotation = data[3:4].transpose((0, 3, 1, 2)).astype(np.uint8)
+        annotation = data[5:6].transpose((0, 3, 1, 2)).astype(np.uint8)
         data_batch = {
             'input_mris':input_3mri,
             'cspca_label':cspca_label
             }
+        
         annotation_3 = None
-        anatomical_3 = None
-
+        
         # option to get annotation or anatomical masks in case needed
         if self.get_annotation_masks:
-            t2_annotation = input_3mri[0] * annotation
-            adc_annotation = input_3mri[1] * annotation
-            highb_annotation = input_3mri[2] * annotation
-
-            annotation_3 = np.array([t2_annotation, adc_annotation, highb_annotation])
-            data_batch['annotation_masks'] = annotation_3
-
+            if self.anatomical_masks:
+                input_3annotation = data[6:9]
+            else:
+                input_3annotation = data[3:6]
+            data_batch['annotation_masks'] = input_3annotation
+            
         if self.anatomical_masks:
-            whole_prostate = whole_prostate
-            whole_prostate = whole_prostate[0].transpose((2, 0, 1)).astype(np.uint8)
-            t2_anatomical = input_3mri[0] * whole_prostate
-            adc_anatomical = input_3mri[1] * whole_prostate
-            highb_anatomical = input_3mri[2] * whole_prostate
+            input_3anatomical = data[3:6]
+            data_batch['anatomical_masks'] = input_3anatomical
+            
 
-            anatomical_3 = np.array([t2_anatomical, adc_anatomical, highb_anatomical])
-            data_batch['anatomical_masks'] = anatomical_3
+            
 
         return data_batch
